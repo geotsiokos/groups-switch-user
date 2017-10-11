@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Groups Switch User
  * Plugin URI: http://www.netpad.gr
- * Description: Handles three groups. When the user becomes member to one group, removes the user from the two other groups.
+ * Description: User promoter. Once a user gets added to the last out of a list of groups, the user gets removed from the rest of the groups.
  * Version: 1.0.0
  * Author: George Tsiokos
  * Author URI: http://www.netpad.gr
@@ -24,13 +24,18 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
+ * @package groups-switch-user
  */
 
 if ( !defined( 'ABSPATH' ) ) {
-    exit;
+	exit;
 }
 
 add_action( 'plugins_loaded', 'gsu_plugins_loaded' );
+
+/**
+ * Checks plugin dependencies
+ */
 function gsu_plugins_loaded() {
 	$active_plugins = get_option( 'active_plugins', array() );
 	if ( in_array( 'groups/groups.php', $active_plugins ) ) {
@@ -42,61 +47,54 @@ function gsu_plugins_loaded() {
 
 /**
  * Handles the user-group switch
+ * If group_id belongs to the defined list
+ * and the user_id also belongs to the rest
+ * of them, remove the user_id from the rest
+ * of the groups.
  *
  * @param int $user_id
  * @param int $group_id
  */
 function gsu_groups_created_user_group( $user_id, $group_id ) {
 	
-	// first group
-	$first_group_name  = 'Gold';
+	// array of groups to check
+	//$groups_list = array( 'Gold', 'Silver', 'Bronze', 'Blue' );
+	$groups_list = apply_filters( 'groups_switch_user_groups_list', array() );
 	
-	// second group
-	$second_group_name = 'Silver';
-	
-	// third group
-	$third_group_name  = 'Bronze';	
-
-	if ( get_user_by( 'ID', $user_id ) ) {
-		require_once( ABSPATH . 'wp-includes/pluggable.php' );
-		if( $new_group = Groups_Group::read( $group_id ) ) {
-			$new_group_name = $new_group->name;
+	if ( is_array( $groups_list ) && count( $groups_list ) > 0 ) {
+		if ( get_user_by( 'ID', $user_id ) ) {
 			
-			// check on which group was the user added and remove the user from the other two
-			switch ( $new_group_name ) { 
+			require_once ABSPATH . 'wp-includes/pluggable.php';
+			if ( $new_group = Groups_Group::read( $group_id ) ) {
+				$new_group_name = $new_group->name;
 				
-				case $first_group_name : // remove user from second and third group
-					if ( 
-						gsu_check_member( $user_id, $second_group_name ) &&
-						gsu_check_member( $user_id, $third_group_name ) 
-					) {
-						gsu_remove_member( $user_id, $second_group_name );
-						gsu_remove_member( $user_id, $third_group_name );
+				/**
+				 * We should first remove the group where
+				 * the user_id was just added and check the
+				 * rest of the groups in the given list
+				 */
+				if ( $key = array_search( $new_group_name, $groups_list ) ) {
+					unset( $groups_list[$key] );
+					$groups_list = array_values( $groups_list );
+					
+					$groups_count = count( $groups_list );
+					for ( $i = 0; $i < $groups_count; $i++ ) {
+						
+						// if user_id doesn't belong to each one of the
+						// groups in the list, then the process should break
+						if ( !gsu_check_member( $user_id, $groups_list[$i] ) ) {
+							$groups_list[$i] = 0;
+						}
 					}
-					break;
-
-				case $second_group_name : // remove user from first and third group
-					if (
-						gsu_check_member( $user_id, $first_group_name ) &&
-						gsu_check_member( $user_id, $third_group_name )
-					) {
-						gsu_remove_member( $user_id, $first_group_name );
-						gsu_remove_member( $user_id, $third_group_name );
+					
+					// If the user doesn't belong in at least one
+					// of the groups, then stop the process
+					if ( !in_array( 0, $groups_list, true ) ) {
+						foreach ( $groups_list as $group_name ) {
+							gsu_remove_member( $user_id, $group_name );
+						}
 					}
-					break;
-
-				case $third_group_name : // remove user from first and second group
-					if (
-						gsu_check_member( $user_id, $first_group_name ) &&
-						gsu_check_member( $user_id, $first_group_name )
-					) {
-						gsu_remove_member( $user_id, $first_group_name );
-						gsu_remove_member( $user_id, $second_group_name );
-					}
-					break;
-				
-				default:
-					break;
+				}
 			}
 		}
 	}
