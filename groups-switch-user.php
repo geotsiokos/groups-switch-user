@@ -34,7 +34,7 @@ if ( !defined( 'ABSPATH' ) ) {
 add_action( 'plugins_loaded', 'gsu_plugins_loaded' );
 
 /**
- * Checks plugin dependencies
+ * Check plugin dependencies
  */
 function gsu_plugins_loaded() {
 	$active_plugins = get_option( 'active_plugins', array() );
@@ -56,42 +56,65 @@ function gsu_plugins_loaded() {
  * @param int $group_id
  */
 function gsu_groups_created_user_group( $user_id, $group_id ) {
-	
+
 	// array of groups to check
-	//$groups_list = array( 'Gold', 'Silver', 'Bronze', 'Blue' );
+	//$groups_list = array( 'Bronze', 'Silver', 'Gold' );
 	$groups_list = apply_filters( 'groups_switch_user_groups_list', array() );
-	
+	$dependency_type = apply_filters( 'groups_switch_user_dependency', array( 0 => 'single' ) );
+
 	if ( is_array( $groups_list ) && count( $groups_list ) > 0 ) {
+
 		if ( get_user_by( 'ID', $user_id ) ) {
-			
+
 			require_once ABSPATH . 'wp-includes/pluggable.php';
 			if ( $new_group = Groups_Group::read( $group_id ) ) {
 				$new_group_name = $new_group->name;
-				
+
 				/**
 				 * We should first remove the group where
 				 * the user_id was just added and check the
 				 * rest of the groups in the given list
 				 */
-				if ( $key = array_search( $new_group_name, $groups_list ) ) {
-					unset( $groups_list[$key] );
-					$groups_list = array_values( $groups_list );
-					
-					$groups_count = count( $groups_list );
-					for ( $i = 0; $i < $groups_count; $i++ ) {
-						
-						// if user_id doesn't belong to each one of the
-						// groups in the list, then the process should break
-						if ( !gsu_check_member( $user_id, $groups_list[$i] ) ) {
-							$groups_list[$i] = 0;
-						}
-					}
-					
-					// If the user doesn't belong in at least one
-					// of the groups, then stop the process
-					if ( !in_array( 0, $groups_list, true ) ) {
-						foreach ( $groups_list as $group_name ) {
-							gsu_remove_member( $user_id, $group_name );
+				$groups_list_count = count( $groups_list );
+				for ( $j = 0; $j < $groups_list_count; $j++ ) {
+
+					if (
+						is_array( $groups_list[$j] ) &&
+						in_array( $new_group_name, $groups_list[$j] )
+					) {
+
+						$key = array_search( $new_group_name, $groups_list[$j] );
+						unset( $groups_list[$j][$key] );
+						$groups_list[$j] = array_values( $groups_list[$j] );
+
+						$list_count = count( $groups_list[$j] );
+						for ( $i = 0; $i < $list_count; $i++ ) {
+
+							if ( $dependency_type[$j] == 'single' ) {
+
+								if ( gsu_check_member( $user_id, $groups_list[$j][$i] ) ) {
+									gsu_remove_member( $user_id, $groups_list[$j][$i] );
+								}
+
+							} else if ( $dependency_type[$j] == 'full' ) {
+
+								// if user_id doesn't belong to each one of the
+								// groups in the list, then the process should break
+								if ( !gsu_check_member( $user_id, $groups_list[$j][$i] ) ) {
+									$groups_list[$j][$i] = 0;
+								}
+
+								// If the user doesn't belong in at least one
+								// of the groups, then stop the process
+								if ( !in_array( 0, $groups_list[$j], true ) ) {
+									foreach ( $groups_list[$j] as $group_name ) {
+										gsu_remove_member( $user_id, $group_name );
+									}
+								}
+
+							} else {
+								break;
+							}
 						}
 					}
 				}
